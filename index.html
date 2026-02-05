@@ -2,7 +2,7 @@
 <html lang="no">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="viewport" content="width=1280, initial-scale=1.0, maximum-scale=1.0"/>
 <title>Program – 1. april</title>
 
 <style>
@@ -42,6 +42,7 @@ body {
   color: var(--text);
   display: flex;
   justify-content: center;
+  min-width: 1280px;
 }
 
 .canvas-container{position:relative; width:100%; display:flex; justify-content:center; align-items:flex-start;}
@@ -167,9 +168,9 @@ body {
 <body>
 <style>
 /* control panel styles (inline so we don't edit head) */
-.controls { width: 640px; max-width: calc(100% - 24px); background: rgba(255,255,255,0.03); padding: 14px; border-radius: 10px; margin-bottom: 18px; }
+.controls { width: 640px; background: rgba(255,255,255,0.03); padding: 14px; border-radius: 10px; margin-bottom: 18px; }
 .controls h3{margin:0 0 8px 0;font-size:14px}
-.controls .row{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.controls .row{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:nowrap}
 .controls input,.controls select{min-width:0}
 .controls label{width:110px;color:var(--muted);font-size:13px}
 .controls input[type="color"],.controls input[type="number"],.controls select{padding:6px;border-radius:6px;border:none;background:rgba(255,255,255,0.04);color:var(--text)}
@@ -380,7 +381,7 @@ function renderCardControls(){
     const isPad = card.subject === 'pad';
     row.innerHTML = `
       <div class="content">
-        <div style="display:flex;gap:8px;align-items:center;width:100%;flex-wrap:wrap">
+        <div style="display:flex;gap:8px;align-items:center;width:100%;flex-wrap:nowrap">
           <select class="field card-subject" data-i="${i}" style="min-width:130px">
             ${Object.keys(SUBJECTS).map(k=>`<option value="${k}" ${card.subject===k?'selected':''}>${SUBJECTS[k].label}</option>`).join('')}
           </select>
