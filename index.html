@@ -167,7 +167,7 @@ body {
 <body>
 <style>
 /* control panel styles (inline so we don't edit head) */
-.controls { width: 360px; background: rgba(255,255,255,0.03); padding: 14px; border-radius: 10px; margin-bottom: 18px; }
+.controls { width: 640px; max-width: calc(100% - 24px); background: rgba(255,255,255,0.03); padding: 14px; border-radius: 10px; margin-bottom: 18px; }
 .controls h3{margin:0 0 8px 0;font-size:14px}
 .controls .row{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
 .controls input,.controls select{min-width:0}
@@ -392,6 +392,7 @@ function renderCardControls(){
             <input type="time" class="time-start field" data-i="${i}" value="${card.timeStart||''}">
             <span>—</span>
             <input type="time" class="time-end field" data-i="${i}" value="${card.timeEnd||''}">
+            <input type="text" class="field card-location" data-i="${i}" placeholder="Location" value="${card.location||''}" style="min-width:140px">
             <span class="icon-btn" title="Time range" aria-hidden="true">
               <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 1.75a10.25 10.25 0 1 0 0 20.5 10.25 10.25 0 0 0 0-20.5Zm0 1.5a8.75 8.75 0 1 1 0 17.5 8.75 8.75 0 0 1 0-17.5Zm-.75 3.5v5.19l4.22 2.44.75-1.3-3.47-2V6.75h-1.5Z"/></svg>
             </span>
@@ -425,6 +426,9 @@ function renderCardControls(){
   });
   container.querySelectorAll('.time-end').forEach(inp=>{
     inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i; state.cards[i].timeEnd = e.target.value; validateTimePair(i); generate(); });
+  });
+  container.querySelectorAll('.card-location').forEach(inp=>{
+    inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i; state.cards[i].location = e.target.value; generate(); });
   });
   // pad file handler
   container.querySelectorAll('.pad-file').forEach(inp=>{
@@ -473,6 +477,7 @@ function renderCardControls(){
             <span class="icon-btn" title="Time range" aria-hidden="true">
               <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 1.75a10.25 10.25 0 1 0 0 20.5 10.25 10.25 0 0 0 0-20.5Zm0 1.5a8.75 8.75 0 1 1 0 17.5 8.75 8.75 0 0 1 0-17.5Zm-.75 3.5v5.19l4.22 2.44.75-1.3-3.47-2V6.75h-1.5Z"/></svg>
             </span>
+            <input class="field sub-location" data-i="${i}" data-si="${si}" placeholder="Location" value="${s.location||''}" style="min-width:140px">
           </div>
           <button class="remove-btn small" data-i="${i}" data-si="${si}" title="Remove sub" aria-label="Remove sub">
             <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 6h18v2H3V6zm2 3h14l-1.5 12.5a2 2 0 0 1-2 1.5H8.5a2 2 0 0 1-2-1.5L5 9zm3-6h8v2H8V3z"/></svg>
@@ -494,6 +499,9 @@ function renderCardControls(){
     });
     list.querySelectorAll('.sub-time-end').forEach(inp=>{
       inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i, si=+e.target.dataset.si; state.cards[i].subs[si].timeEnd = e.target.value; validateSubTimePair(i,si); generate(); });
+    });
+    list.querySelectorAll('.sub-location').forEach(inp=>{
+      inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i, si=+e.target.dataset.si; state.cards[i].subs[si].location = e.target.value; generate(); });
     });
     list.querySelectorAll('button.remove-btn.small').forEach(btn=>{
       btn.addEventListener('click', (e)=>{ const i=+e.currentTarget.dataset.i, si=+e.currentTarget.dataset.si; removeSubcard(i,si); });
@@ -520,7 +528,7 @@ function validateSubTimePair(i,si){
 
 // ---------- State mutators ----------
 function addCard(){
-  state.cards.push({ subject:'food', title:'', timeStart:'', timeEnd:'', subs:[], padImage:'' });
+  state.cards.push({ subject:'food', title:'', timeStart:'', timeEnd:'', location:'', subs:[], padImage:'' });
   renderCardControls();
   generate();
 }
@@ -531,7 +539,7 @@ function removeCardAt(index){
   generate();
 }
 function addSubcard(cardIndex){
-  state.cards[cardIndex].subs.push({ subject: state.cards[cardIndex].subject, title:'', timeStart:'', timeEnd:'' });
+  state.cards[cardIndex].subs.push({ subject: state.cards[cardIndex].subject, title:'', timeStart:'', timeEnd:'', location:'' });
   renderCardControls();
   generate();
 }
@@ -568,7 +576,12 @@ function generate(){
     } else {
       const icon = SUBJECTS[subj].icon;
       const ctime = (card.timeStart && card.timeEnd && timeToMinutes(card.timeStart)<timeToMinutes(card.timeEnd)) ? `${card.timeStart}–${card.timeEnd}` : '';
-      const timeHtml = ctime ? `<div class='time'>${ctime}</div>` : '';
+      const cloc = (card.location||'').trim();
+      let timeText = '';
+      if (ctime && cloc) timeText = `${ctime} · ${cloc}`;
+      else if (ctime) timeText = ctime;
+      else if (cloc) timeText = cloc;
+      const timeHtml = timeText ? `<div class='time'>${timeText}</div>` : '';
       html += `<div class='card is-${subj}'>`;
       html += `<div class='row'><div class='icon'>${icon}</div><div>${timeHtml}<div class='title'>${card.title||''}</div></div></div>`;
       if ((card.subs||[]).length){
@@ -577,7 +590,12 @@ function generate(){
           const ssubj = s.subject || subj;
           const sicon = SUBJECTS[ssubj].icon;
           const stime = (s.timeStart && s.timeEnd && timeToMinutes(s.timeStart)<timeToMinutes(s.timeEnd)) ? `${s.timeStart}–${s.timeEnd}` : '';
-          const sTimeHtml = stime ? `<div class='time'>${s.timeStart}–${s.timeEnd}</div>` : '';
+          const sloc = (s.location||'').trim();
+          let sText = '';
+          if (stime && sloc) sText = `${stime} · ${sloc}`;
+          else if (stime) sText = stime;
+          else if (sloc) sText = sloc;
+          const sTimeHtml = sText ? `<div class='time'>${sText}</div>` : '';
           html += `<div class='subcard is-${ssubj}-soft'><div class='row'><div class='icon'>${sicon}</div><div>${sTimeHtml}<div class='title'>${s.title||''}</div></div></div></div>`;
         });
         html += `</div>`;
@@ -661,8 +679,8 @@ function exportPNG(){
 function init(){
   // start with one example card for convenience
   state.cards = [
-    { subject:'food', title:'Frokost', timeStart:'07:30', timeEnd:'09:00', subs:[], padImage:'' },
-    { subject:'activity', title:'Aktiviteter', timeStart:'09:00', timeEnd:'16:00', subs:[ {subject:'food', title:'Lunsj', timeStart:'12:00', timeEnd:'13:00'} ], padImage:'' },
+    { subject:'food', title:'Frokost', timeStart:'07:30', timeEnd:'09:00', location:'Suitene', subs:[], padImage:'' },
+    { subject:'activity', title:'Aktiviteter', timeStart:'09:00', timeEnd:'16:00', location:'', subs:[ {subject:'food', title:'Lunsj', timeStart:'12:00', timeEnd:'13:00', location:'Festplassen'} ], padImage:'' },
   ];
   setCanvasVars(state.canvas.width, state.canvas.height);
   renderCardControls();
