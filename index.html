@@ -239,8 +239,9 @@ body {
   <div class="row buttons">
     <button class="button" id="generateBtn">Generate</button>
     <button class="button" id="exportBtn">Export PNG</button>
-    <button class="button remove-btn" id="deleteAllBtn" title="Delete all" style="margin-left:6px" aria-label="Delete all">
+    <button class="button remove-btn" id="deleteAllBtn" title="Clear canvas" aria-label="Clear canvas" style="margin-left:6px">
       <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 6h18v2H3V6zm2 3h14l-1.5 12.5a2 2 0 0 1-2 1.5H8.5a2 2 0 0 1-2-1.5L5 9zm3-6h8v2H8V3z"/></svg>
+      Clear canvas
     </button>
   </div>
   <div class="muted">Tip: Presets update immediately. Choose Custom to edit colors and radius.</div>
@@ -258,6 +259,12 @@ body {
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script>
 // ---------- Simple, refactored state ----------
+function getTodayHeader(){
+  const d = new Date();
+  const weekday = d.toLocaleDateString('fr-FR', { weekday: 'long' }).toUpperCase();
+  const date = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
+  return { weekday, date };
+}
 const SUBJECTS = {
   food: { label: 'Food', icon: '🍽️' },
   activity: { label: 'Activity', icon: '🏃' },
@@ -294,7 +301,7 @@ const PRESETS = {
 };
 
 const state = {
-  header: { weekday: 'ONSDAG', date: '1. april' },
+  header: getTodayHeader(),
   preset: 'ocean',
   custom: {
     bg: '#0b0b0b', text:'#ffffff',
@@ -302,7 +309,7 @@ const state = {
     radius: 22,
   },
   cards: [],
-  canvas: { width: 550, height: 1860 },
+  canvas: { width: 550, height: 1300 },
   unitCardHeight: 0,
 };
 
@@ -356,6 +363,89 @@ function updatePalettePreview(){
 // Fit the canvas stage into the viewport below the controls without scrolling
 // no viewport scaling; canvas is rendered at exact pixel size
 
+// ---------- Persistence (localStorage + cookies fallback) ----------
+const STORAGE_KEY = 'event_state';
+const COOKIE_PREFIX = 'evs_';
+const COOKIE_COUNT = 'evs_count';
+
+function cloneStateForCookie(){
+  // Cookies have very limited space; strip large image data
+  const s = JSON.parse(JSON.stringify(state));
+  if (s.cards && s.cards.length){
+    s.cards.forEach(c=>{ if (c.padImage) c.padImage = ''; });
+  }
+  return s;
+}
+
+function serializeState(stripImages=false){
+  try {
+    const s = stripImages ? cloneStateForCookie() : state;
+    return JSON.stringify(s);
+  } catch(e){ return ''; }
+}
+
+function persistLocal(){
+  try{ localStorage.setItem(STORAGE_KEY, serializeState(false)); }catch(e){}
+}
+
+function loadLocal(){
+  try{ const txt = localStorage.getItem(STORAGE_KEY); if (!txt) return null; return JSON.parse(txt); }catch(e){ return null; }
+}
+
+function setCookie(name, value, days){
+  const d = new Date(); d.setTime(d.getTime() + (days*24*60*60*1000));
+  const expires = '; expires=' + d.toUTCString();
+  document.cookie = name + '=' + encodeURIComponent(value) + expires + '; path=/';
+}
+function getCookie(name){
+  const cname = name + '=';
+  const ca = document.cookie.split(';');
+  for (let i=0;i<ca.length;i++){ let c = ca[i].trim(); if (c.indexOf(cname)===0) return decodeURIComponent(c.substring(cname.length,c.length)); }
+  return null;
+}
+function deleteCookie(name){ setCookie(name,'',-1); }
+
+function persistCookies(){
+  const data = serializeState(true); // stripped images
+  // clear previous chunks
+  const prevCount = parseInt(getCookie(COOKIE_COUNT)||'0',10) || 0;
+  for(let i=0;i<prevCount;i++) deleteCookie(COOKIE_PREFIX + i);
+  deleteCookie(COOKIE_COUNT);
+  // chunk the data into ~3500 char per cookie
+  const chunkSize = 3500;
+  const chunks = Math.ceil(data.length / chunkSize);
+  for(let i=0;i<chunks;i++){
+    const part = data.slice(i*chunkSize, (i+1)*chunkSize);
+    setCookie(COOKIE_PREFIX + i, part, 30);
+  }
+  setCookie(COOKIE_COUNT, String(chunks), 30);
+}
+
+function loadCookies(){
+  const count = parseInt(getCookie(COOKIE_COUNT)||'0',10) || 0;
+  if (!count) return null;
+  let data = '';
+  for(let i=0;i<count;i++){
+    const part = getCookie(COOKIE_PREFIX + i) || '';
+    data += part;
+  }
+  try{ return JSON.parse(data); }catch(e){ return null; }
+}
+
+function persistState(){
+  persistLocal();
+  persistCookies();
+}
+
+function restoreState(){
+  // Prefer localStorage (can store images); fall back to cookies
+  const local = loadLocal();
+  if (local){ Object.assign(state, local); return true; }
+  const cookies = loadCookies();
+  if (cookies){ Object.assign(state, cookies); return true; }
+  return false;
+}
+
 // Measure the height of an empty food card to use as pad unit height
 function measureUnitCardHeight(){
   const app = document.getElementById('appRoot');
@@ -381,27 +471,36 @@ function renderCardControls(){
     const isPad = card.subject === 'pad';
     row.innerHTML = `
       <div class="content">
-        <div style="display:flex;gap:8px;align-items:center;width:100%;flex-wrap:nowrap">
-          <select class="field card-subject" data-i="${i}" style="min-width:130px">
-            ${Object.keys(SUBJECTS).map(k=>`<option value="${k}" ${card.subject===k?'selected':''}>${SUBJECTS[k].label}</option>`).join('')}
-          </select>
-          ${isPad ? `
+        ${isPad ? `
+          <div style="display:flex;gap:8px;align-items:center;width:100%;flex-wrap:nowrap">
+            <select class="field card-subject" data-i="${i}" style="min-width:130px">
+              ${Object.keys(SUBJECTS).map(k=>`<option value="${k}" ${card.subject===k?'selected':''}>${SUBJECTS[k].label}</option>`).join('')}
+            </select>
             <input type="file" accept="image/*" class="field pad-file" data-i="${i}" style="flex:1;min-width:160px">
             <input type="number" min="1" value="${card.padUnits||1}" class="field pad-units" data-i="${i}" title="Pad height (units)" style="width:120px"/>
-          ` : `
-            <input type="text" data-i="${i}" class="field card-title" placeholder="Title" value="${card.title||''}" style="flex:1;min-width:160px">
+            <button class="remove-btn" data-i="${i}" title="Remove card" aria-label="Remove card" style="margin-left:auto">
+              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 6h18v2H3V6zm2 3h14l-1.5 12.5a2 2 0 0 1-2 1.5H8.5a2 2 0 0 1-2-1.5L5 9zm3-6h8v2H8V3z"/></svg>
+            </button>
+          </div>
+        ` : `
+          <div class="card-top" style="display:flex;gap:8px;align-items:center;width:100%;flex-wrap:nowrap;justify-content:space-between">
+            <div style="display:flex;gap:8px;align-items:center;flex:1;min-width:0">
+              <select class="field card-subject" data-i="${i}" style="min-width:130px">
+                ${Object.keys(SUBJECTS).map(k=>`<option value="${k}" ${card.subject===k?'selected':''}>${SUBJECTS[k].label}</option>`).join('')}
+              </select>
+              <input type="text" data-i="${i}" class="field card-title" placeholder="Title" value="${card.title||''}" style="flex:1;min-width:160px">
+            </div>
+            <button class="remove-btn" data-i="${i}" title="Remove card" aria-label="Remove card">
+              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 6h18v2H3V6zm2 3h14l-1.5 12.5a2 2 0 0 1-2 1.5H8.5a2 2 0 0 1-2-1.5L5 9zm3-6h8v2H8V3z"/></svg>
+            </button>
+          </div>
+          <div class="card-bottom" style="display:flex;gap:8px;align-items:center;width:100%;flex-wrap:nowrap;margin-top:6px">
             <input type="time" class="time-start field" data-i="${i}" value="${card.timeStart||''}">
             <span>—</span>
             <input type="time" class="time-end field" data-i="${i}" value="${card.timeEnd||''}">
-            <input type="text" class="field card-location" data-i="${i}" placeholder="Location" value="${card.location||''}" style="min-width:140px">
-            <span class="icon-btn" title="Time range" aria-hidden="true">
-              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 1.75a10.25 10.25 0 1 0 0 20.5 10.25 10.25 0 0 0 0-20.5Zm0 1.5a8.75 8.75 0 1 1 0 17.5 8.75 8.75 0 0 1 0-17.5Zm-.75 3.5v5.19l4.22 2.44.75-1.3-3.47-2V6.75h-1.5Z"/></svg>
-            </span>
-          `}
-          <button class="remove-btn" data-i="${i}" title="Remove card" aria-label="Remove card" style="margin-left:auto">
-            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 6h18v2H3V6zm2 3h14l-1.5 12.5a2 2 0 0 1-2 1.5H8.5a2 2 0 0 1-2-1.5L5 9zm3-6h8v2H8V3z"/></svg>
-          </button>
-        </div>
+            <input type="text" class="field card-location" data-i="${i}" placeholder="Location" value="${card.location||''}" style="min-width:140px;flex:1">
+          </div>
+        `}
         ${isPad ? `` : `
         <div class="sub-block">
           <div class="muted">Subcards</div>
@@ -469,20 +568,17 @@ function renderCardControls(){
             ${Object.keys(SUBJECTS).map(k=>`<option value="${k}" ${s.subject===k?'selected':''}>${SUBJECTS[k].label}</option>`).join('')}
           </select>
           <input class="field sub-title" data-i="${i}" data-si="${si}" placeholder="Sub title" value="${s.title||''}" style="flex:1;min-width:140px">
+          <button class="remove-btn small" data-i="${i}" data-si="${si}" title="Remove sub" aria-label="Remove sub" style="margin-left:auto">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 6h18v2H3V6zm2 3h14l-1.5 12.5a2 2 0 0 1-2 1.5H8.5a2 2 0 0 1-2-1.5L5 9zm3-6h8v2H8V3z"/></svg>
+          </button>
         </div>
         <div class="sub-bottom">
           <div class="time-group">
             <input type="time" class="field sub-time-start" data-i="${i}" data-si="${si}" value="${s.timeStart||''}">
             <span>—</span>
             <input type="time" class="field sub-time-end" data-i="${i}" data-si="${si}" value="${s.timeEnd||''}">
-            <span class="icon-btn" title="Time range" aria-hidden="true">
-              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 1.75a10.25 10.25 0 1 0 0 20.5 10.25 10.25 0 0 0 0-20.5Zm0 1.5a8.75 8.75 0 1 1 0 17.5 8.75 8.75 0 0 1 0-17.5Zm-.75 3.5v5.19l4.22 2.44.75-1.3-3.47-2V6.75h-1.5Z"/></svg>
-            </span>
             <input class="field sub-location" data-i="${i}" data-si="${si}" placeholder="Location" value="${s.location||''}" style="min-width:140px">
           </div>
-          <button class="remove-btn small" data-i="${i}" data-si="${si}" title="Remove sub" aria-label="Remove sub">
-            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 6h18v2H3V6zm2 3h14l-1.5 12.5a2 2 0 0 1-2 1.5H8.5a2 2 0 0 1-2-1.5L5 9zm3-6h8v2H8V3z"/></svg>
-          </button>
         </div>
       `;
       list.appendChild(el);
@@ -551,6 +647,14 @@ function removeSubcard(cardIndex, subIndex){
 }
 function clearAll(){
   state.cards = [];
+  // reset header to today's date and sync inputs
+  if (typeof getTodayHeader === 'function') {
+    state.header = getTodayHeader();
+    const w = document.getElementById('weekdayInput');
+    const d = document.getElementById('dateInput');
+    if (w) w.value = state.header.weekday;
+    if (d) d.value = state.header.date;
+  }
   renderCardControls();
   generate();
 }
@@ -605,6 +709,8 @@ function generate(){
     }
   });
   app.innerHTML = html;
+  // persist after every render to capture changes
+  persistState();
 }
 
 // ---------- Presets & custom UI ----------
@@ -679,15 +785,24 @@ function exportPNG(){
 // ---------- Init ----------
 function init(){
   // start with one example card for convenience
-  state.cards = [
-    { subject:'food', title:'Frokost', timeStart:'07:30', timeEnd:'09:00', location:'Suitene', subs:[], padImage:'' },
-    { subject:'activity', title:'Aktiviteter', timeStart:'09:00', timeEnd:'16:00', location:'', subs:[ {subject:'food', title:'Lunsj', timeStart:'12:00', timeEnd:'13:00', location:'Festplassen'} ], padImage:'' },
-  ];
+  const hadSaved = restoreState();
+  if (!hadSaved){
+    state.cards = [
+      { subject:'food', title:'Frokost', timeStart:'07:30', timeEnd:'09:00', location:'Suitene', subs:[], padImage:'' },
+      { subject:'activity', title:'Aktiviteter', timeStart:'09:00', timeEnd:'16:00', location:'', subs:[ {subject:'food', title:'Lunsj', timeStart:'12:00', timeEnd:'13:00', location:'Festplassen'} ], padImage:'' },
+    ];
+  }
   setCanvasVars(state.canvas.width, state.canvas.height);
   renderCardControls();
   wireHeaderInputs();
   wirePreset();
   wireActions();
+  // reflect restored header/canvas/preset in controls
+  document.getElementById('weekdayInput').value = state.header.weekday;
+  document.getElementById('dateInput').value = state.header.date;
+  document.getElementById('canvasW').value = state.canvas.width;
+  document.getElementById('canvasH').value = state.canvas.height;
+  document.getElementById('palettePreset').value = state.preset;
   applyPreset(state.preset);
   updatePalettePreview();
   generate();
