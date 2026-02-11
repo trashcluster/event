@@ -250,6 +250,12 @@ body {
     </button>
   </div>
   <div class="muted">Tip: Presets update immediately. Choose Custom to edit colors and radius.</div>
+  <div class="row" style="align-items:center;margin-top:6px">
+    <label>Share JSON</label>
+    <input id="shareString" type="text" class="field" placeholder="Export/import share string" style="flex:1;min-width:0">
+    <button class="button" id="exportJsonBtn" title="Export JSON">Export</button>
+    <button class="button" id="importJsonBtn" title="Import JSON">Import</button>
+  </div>
 </div>
 
 <div class="canvas-container">
@@ -467,6 +473,72 @@ function measureUnitCardHeight(){
   const h = probe.offsetHeight || 200;
   app.removeChild(probe);
   state.unitCardHeight = h;
+}
+
+// ---------- Share (export/import) ----------
+function buildShare(){
+  // Construct a portable snapshot of the page
+  return {
+    v: 1,
+    header: state.header,
+    preset: state.preset,
+    custom: state.custom,
+    canvas: state.canvas,
+    cards: state.cards,
+  };
+}
+
+function exportShareString(){
+  try{
+    const txt = JSON.stringify(buildShare());
+    const el = document.getElementById('shareString');
+    if (el) el.value = txt;
+  }catch(err){
+    alert('Export failed: ' + err);
+  }
+}
+
+function applyShare(obj){
+  if (!obj || typeof obj !== 'object') throw new Error('Invalid data');
+  const next = JSON.parse(JSON.stringify(obj));
+  // minimal shape checks and defaults
+  if (!next.header || !next.header.weekday || !next.header.date){ next.header = getTodayHeader(); }
+  if (!next.preset) next.preset = 'ocean';
+  if (!next.custom){ next.custom = state.custom; }
+  if (!next.canvas){ next.canvas = state.canvas; }
+  if (!Array.isArray(next.cards)) next.cards = [];
+
+  // apply
+  state.header = next.header;
+  state.preset = next.preset;
+  state.custom = next.custom;
+  state.canvas = next.canvas;
+  state.cards = next.cards;
+
+  // sync UI controls
+  setCanvasVars(state.canvas.width, state.canvas.height);
+  const w = document.getElementById('weekdayInput'); if (w) w.value = state.header.weekday;
+  const d = document.getElementById('dateInput'); if (d) d.value = state.header.date;
+  const cw = document.getElementById('canvasW'); if (cw) cw.value = state.canvas.width;
+  const ch = document.getElementById('canvasH'); if (ch) ch.value = state.canvas.height;
+  const pp = document.getElementById('palettePreset'); if (pp) pp.value = state.preset;
+
+  applyPreset(state.preset);
+  updatePalettePreview();
+  renderCardControls();
+  generate();
+}
+
+function importShareString(){
+  try{
+    const el = document.getElementById('shareString');
+    const txt = el ? el.value : '';
+    if (!txt) { alert('Paste a JSON string first.'); return; }
+    const data = JSON.parse(txt);
+    applyShare(data);
+  }catch(err){
+    alert('Import failed: ' + err);
+  }
 }
 
 // ---------- Controls rendering ----------
@@ -783,6 +855,8 @@ function wireActions(){
   document.getElementById('deleteAllBtn').addEventListener('click', ()=>{ if (confirm('Delete all cards?')) clearAll(); });
   document.getElementById('canvasW').addEventListener('input', (e)=>{ const w= Math.max(200, parseInt(e.target.value||'550',10)); state.canvas.width = w; setCanvasVars(state.canvas.width, state.canvas.height); });
   document.getElementById('canvasH').addEventListener('input', (e)=>{ const h= Math.max(300, parseInt(e.target.value||'1860',10)); state.canvas.height = h; setCanvasVars(state.canvas.width, state.canvas.height); });
+  document.getElementById('exportJsonBtn').addEventListener('click', exportShareString);
+  document.getElementById('importJsonBtn').addEventListener('click', importShareString);
 }
 
 function exportPNG(){
