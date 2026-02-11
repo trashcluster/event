@@ -217,6 +217,7 @@ body {
   <div class="row" style="align-items:center">
     <label>Preset</label>
     <select id="palettePreset" class="field">
+      <option value="PC26">PC26 (default)</option>
       <option value="ocean">Ocean (dark)</option>
       <option value="sunset">Sunset (dark)</option>
       <option value="forest">Forest (dark)</option>
@@ -286,6 +287,24 @@ const SUBJECTS = {
 
 // Dark-only presets with per-subject colors
 const PRESETS = {
+  PC26: {
+    name: 'PC26',
+    bg: '#0b0b0b',
+    text: '#fdfee7',
+    subjects: {
+      food: '#1f3314',      // Lunch
+      activity: '#842a2a',  // Activity
+      meeting: '#b99400',   // Meeting
+      logistic: '#103240'   // Logistic
+    },
+    subjectsSoft: {
+      food: '#365922',
+      activity: '#cc5252',
+      meeting: '#9d7d00',
+      logistic: '#103240'
+    },
+    radius: 22,
+  },
   ocean: {
     name: 'Ocean',
     bg: '#0b1220', text:'#e6f0f6',
@@ -314,7 +333,7 @@ const PRESETS = {
 
 const state = {
   header: getTodayHeader(),
-  preset: 'ocean',
+  preset: 'PC26',
   custom: {
     bg: '#0b0b0b', text:'#ffffff',
     subjects: { food:'#1f3d1a', activity:'#7c2a2a', meeting:'#b08a00', logistic:'#334155' },
@@ -346,10 +365,11 @@ function setCssVars(colors){
   root.setProperty('--color-activity', colors.subjects.activity);
   root.setProperty('--color-meeting', colors.subjects.meeting);
   root.setProperty('--color-logistic', colors.subjects.logistic || '#334155');
-  root.setProperty('--color-food-soft', mixHex(colors.subjects.food, 0.25));
-  root.setProperty('--color-activity-soft', mixHex(colors.subjects.activity, 0.25));
-  root.setProperty('--color-meeting-soft', mixHex(colors.subjects.meeting, 0.25));
-  root.setProperty('--color-logistic-soft', mixHex(colors.subjects.logistic || '#334155', 0.25));
+  const soft = colors.subjectsSoft || {};
+  root.setProperty('--color-food-soft', soft.food || mixHex(colors.subjects.food, 0.25));
+  root.setProperty('--color-activity-soft', soft.activity || mixHex(colors.subjects.activity, 0.25));
+  root.setProperty('--color-meeting-soft', soft.meeting || mixHex(colors.subjects.meeting, 0.25));
+  root.setProperty('--color-logistic-soft', soft.logistic || mixHex(colors.subjects.logistic || '#334155', 0.25));
   root.setProperty('--radius-lg', (colors.radius||22)+'px');
   root.setProperty('--radius-md', Math.max(8, (colors.radius||22) - 6)+'px');
 }
