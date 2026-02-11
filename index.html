@@ -16,11 +16,13 @@
   --color-food: #1f3d1a;       /* dark green */
   --color-activity: #7c2a2a;   /* dark red */
   --color-meeting: #b08a00;    /* dark yellow */
+  --color-logistic: #334155;   /* slate */
 
   /* soft variants (subcards) */
   --color-food-soft: #2a4f23;
   --color-activity-soft: #a03a3a;
   --color-meeting-soft: #d1a300;
+  --color-logistic-soft: #475569;
 
   /* radii */
   --radius-lg: 22px; /* default card radius */
@@ -86,6 +88,7 @@ body {
 .is-food { background: var(--color-food); }
 .is-activity { background: var(--color-activity); }
 .is-meeting { background: var(--color-meeting); color: #000; }
+.is-logistic { background: var(--color-logistic); }
 
 .time {
   font-size: 14px;
@@ -117,6 +120,7 @@ body {
 .is-food-soft { background: var(--color-food-soft); }
 .is-activity-soft { background: var(--color-activity-soft); }
 .is-meeting-soft { background: var(--color-meeting-soft); color: #000; }
+.is-logistic-soft { background: var(--color-logistic-soft); }
 
 .subcard .title {
   font-size: 22px;
@@ -224,7 +228,8 @@ body {
     <div class="preview" id="palettePreview"></div>
     <div class="row"><label>Background</label><input type="color" id="bgColor" value="#0b0b0b"><label style="width:80px">Text</label><input type="color" id="textColor" value="#ffffff"></div>
     <div class="row"><label>Food</label><input type="color" id="colorFood" value="#1f3d1a"><label style="width:80px">Activity</label><input type="color" id="colorActivity" value="#7c2a2a"></div>
-    <div class="row"><label>Meeting</label><input type="color" id="colorMeeting" value="#b08a00"><label style="width:80px">Radius</label><input type="number" id="radius" min="8" max="48" value="22"></div>
+    <div class="row"><label>Meeting</label><input type="color" id="colorMeeting" value="#b08a00"><label style="width:80px">Logistic</label><input type="color" id="colorLogistic" value="#334155"></div>
+    <div class="row"><label>Radius</label><input type="number" id="radius" min="8" max="48" value="22"></div>
   </div>
   <div class="row" style="gap:8px;margin:8px 0">
     <button class="button" id="addCardBtn">Add card</button>
@@ -269,6 +274,7 @@ const SUBJECTS = {
   food: { label: 'Food', icon: '🍽️' },
   activity: { label: 'Activity', icon: '🏃' },
   meeting: { label: 'Meeting', icon: '👥' },
+  logistic: { label: 'Logistic', icon: '📦' },
   pad: { label: 'Pad (image)', icon: '' },
 };
 
@@ -277,25 +283,25 @@ const PRESETS = {
   ocean: {
     name: 'Ocean',
     bg: '#0b1220', text:'#e6f0f6',
-    subjects: { food:'#036b66', activity:'#0a3a5a', meeting:'#1e293b' },
+    subjects: { food:'#036b66', activity:'#0a3a5a', meeting:'#1e293b', logistic:'#475569' },
     radius: 22,
   },
   sunset: {
     name: 'Sunset',
     bg: '#1a0b0b', text:'#fff5f3',
-    subjects: { food:'#8a3a28', activity:'#a24141', meeting:'#c27c2a' },
+    subjects: { food:'#8a3a28', activity:'#a24141', meeting:'#c27c2a', logistic:'#5a3a5a' },
     radius: 22,
   },
   forest: {
     name: 'Forest',
     bg: '#0b0f0b', text:'#eef7f0',
-    subjects: { food:'#1f3d1a', activity:'#2e3a24', meeting:'#355f2a' },
+    subjects: { food:'#1f3d1a', activity:'#2e3a24', meeting:'#355f2a', logistic:'#26443a' },
     radius: 22,
   },
   mono: {
     name: 'Mono',
     bg: '#0b0b0b', text:'#f3f4f6',
-    subjects: { food:'#2b2b2b', activity:'#3a3a3a', meeting:'#4b4b4b' },
+    subjects: { food:'#2b2b2b', activity:'#3a3a3a', meeting:'#4b4b4b', logistic:'#5c5c5c' },
     radius: 22,
   }
 };
@@ -305,7 +311,7 @@ const state = {
   preset: 'ocean',
   custom: {
     bg: '#0b0b0b', text:'#ffffff',
-    subjects: { food:'#1f3d1a', activity:'#7c2a2a', meeting:'#b08a00' },
+    subjects: { food:'#1f3d1a', activity:'#7c2a2a', meeting:'#b08a00', logistic:'#334155' },
     radius: 22,
   },
   cards: [],
@@ -333,9 +339,11 @@ function setCssVars(colors){
   root.setProperty('--color-food', colors.subjects.food);
   root.setProperty('--color-activity', colors.subjects.activity);
   root.setProperty('--color-meeting', colors.subjects.meeting);
+  root.setProperty('--color-logistic', colors.subjects.logistic || '#334155');
   root.setProperty('--color-food-soft', mixHex(colors.subjects.food, 0.25));
   root.setProperty('--color-activity-soft', mixHex(colors.subjects.activity, 0.25));
   root.setProperty('--color-meeting-soft', mixHex(colors.subjects.meeting, 0.25));
+  root.setProperty('--color-logistic-soft', mixHex(colors.subjects.logistic || '#334155', 0.25));
   root.setProperty('--radius-lg', (colors.radius||22)+'px');
   root.setProperty('--radius-md', Math.max(8, (colors.radius||22) - 6)+'px');
 }
@@ -356,7 +364,7 @@ function updatePalettePreview(){
   const preview = document.getElementById('palettePreview');
   if (!preview) return;
   const c = currentColors();
-  preview.style.background = `linear-gradient(90deg, ${c.subjects.food}, ${c.subjects.activity}, ${c.subjects.meeting})`;
+  preview.style.background = `linear-gradient(90deg, ${c.subjects.food}, ${c.subjects.activity}, ${c.subjects.meeting}, ${c.subjects.logistic||'#334155'})`;
   preview.textContent = 'Preview';
 }
 
@@ -499,6 +507,7 @@ function renderCardControls(){
             <span>—</span>
             <input type="time" class="time-end field" data-i="${i}" value="${card.timeEnd||''}">
             <input type="text" class="field card-location" data-i="${i}" placeholder="Location" value="${card.location||''}" style="min-width:140px;flex:1">
+            <input type="number" min="1" value="${card.cardUnits||1}" class="field card-units" data-i="${i}" title="Card height (units)" style="width:120px">
           </div>
         `}
         ${isPad ? `` : `
@@ -529,6 +538,9 @@ function renderCardControls(){
   });
   container.querySelectorAll('.card-location').forEach(inp=>{
     inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i; state.cards[i].location = e.target.value; generate(); });
+  });
+  container.querySelectorAll('.card-units').forEach(inp=>{
+    inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i; const v = Math.max(1, parseInt(e.target.value||'1',10)); state.cards[i].cardUnits = v; generate(); });
   });
   // pad file handler
   container.querySelectorAll('.pad-file').forEach(inp=>{
@@ -625,7 +637,7 @@ function validateSubTimePair(i,si){
 
 // ---------- State mutators ----------
 function addCard(){
-  state.cards.push({ subject:'food', title:'', timeStart:'', timeEnd:'', location:'', subs:[], padImage:'' });
+  state.cards.push({ subject:'food', title:'', timeStart:'', timeEnd:'', location:'', cardUnits:1, subs:[], padImage:'' });
   renderCardControls();
   generate();
 }
@@ -687,7 +699,9 @@ function generate(){
       else if (ctime) timeText = ctime;
       else if (cloc) timeText = cloc;
       const timeHtml = timeText ? `<div class='time'>${timeText}</div>` : '';
-      html += `<div class='card is-${subj}'>`;
+      const cunits = Math.max(1, card.cardUnits||1);
+      const cpx = Math.max(1, state.unitCardHeight||200) * cunits;
+      html += `<div class='card is-${subj}' style='min-height:${cpx}px'>`;
       html += `<div class='row'><div class='icon'>${icon}</div><div>${timeHtml}<div class='title'>${card.title||''}</div></div></div>`;
       if ((card.subs||[]).length){
         html += `<div class='stack'>`;
@@ -725,6 +739,7 @@ function applyPreset(name){
     document.getElementById('colorFood').value = state.custom.subjects.food;
     document.getElementById('colorActivity').value = state.custom.subjects.activity;
     document.getElementById('colorMeeting').value = state.custom.subjects.meeting;
+    const cl = document.getElementById('colorLogistic'); if (cl) cl.value = state.custom.subjects.logistic || '#334155';
     document.getElementById('radius').value = state.custom.radius;
   } else {
     customBlock.style.display = 'none';
@@ -734,7 +749,7 @@ function applyPreset(name){
 }
 
 // preview updates for custom inputs
-['bgColor','textColor','colorFood','colorActivity','colorMeeting','radius'].forEach(id=>{
+['bgColor','textColor','colorFood','colorActivity','colorMeeting','colorLogistic','radius'].forEach(id=>{
   document.addEventListener('input', (e)=>{
     if (e.target && e.target.id === id){
       if (state.preset !== 'custom') return; // only when custom
@@ -743,6 +758,7 @@ function applyPreset(name){
       if (id==='colorFood') state.custom.subjects.food = e.target.value;
       if (id==='colorActivity') state.custom.subjects.activity = e.target.value;
       if (id==='colorMeeting') state.custom.subjects.meeting = e.target.value;
+      if (id==='colorLogistic') state.custom.subjects.logistic = e.target.value;
       if (id==='radius') state.custom.radius = +e.target.value || 22;
       updatePalettePreview();
       generate();
@@ -788,8 +804,8 @@ function init(){
   const hadSaved = restoreState();
   if (!hadSaved){
     state.cards = [
-      { subject:'food', title:'Frokost', timeStart:'07:30', timeEnd:'09:00', location:'Suitene', subs:[], padImage:'' },
-      { subject:'activity', title:'Aktiviteter', timeStart:'09:00', timeEnd:'16:00', location:'', subs:[ {subject:'food', title:'Lunsj', timeStart:'12:00', timeEnd:'13:00', location:'Festplassen'} ], padImage:'' },
+      { subject:'food', title:'Frokost', timeStart:'07:30', timeEnd:'09:00', location:'Suitene', cardUnits:1, subs:[], padImage:'' },
+      { subject:'activity', title:'Aktiviteter', timeStart:'09:00', timeEnd:'16:00', location:'', cardUnits:1, subs:[ {subject:'food', title:'Lunsj', timeStart:'12:00', timeEnd:'13:00', location:'Festplassen'} ], padImage:'' },
     ];
   }
   setCanvasVars(state.canvas.width, state.canvas.height);
