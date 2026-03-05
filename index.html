@@ -42,12 +42,38 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  display: flex;
-  justify-content: center;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
   min-width: 1280px;
 }
 
-.canvas-container{position:relative; width:100%; display:flex; justify-content:center; align-items:flex-start;}
+/* two-pane layout: fixed editor left, scrollable viz right */
+.layout {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-start;
+  height: 100vh;
+  width: 100vw;
+}
+
+.layout .controls {
+  flex: 0 0 640px;
+  height: 100vh;
+  overflow-y: auto;
+  position: relative;
+  z-index: 10;
+  background: var(--bg);
+  padding: 0;
+}
+
+.canvas-container {
+  flex: 1;
+  height: 100vh;
+  overflow: auto;
+  position: relative;
+}
+
 .stage-scaler{}
 .app {
   width: var(--canvas-w);
@@ -56,6 +82,15 @@ body {
   padding: 28px 18px 40px;
   outline: 1px dashed rgba(255,255,255,0.22);
   overflow: hidden;
+  flex-shrink: 0;
+}
+
+.apps-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: flex-start;
+  width: fit-content;
 }
 
 .header {
@@ -172,7 +207,12 @@ body {
 <body>
 <style>
 /* control panel styles (inline so we don't edit head) */
-.controls { width: 640px; background: rgba(255,255,255,0.03); padding: 14px; border-radius: 10px; margin-bottom: 18px; }
+.controls {
+  background: rgba(255,255,255,0.03);
+  padding: 14px;
+  border-radius: 10px;
+  margin-bottom: 0;
+}
 .controls h3{margin:0 0 8px 0;font-size:14px}
 .controls .row{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:nowrap}
 .controls input,.controls select{min-width:0}
@@ -204,6 +244,7 @@ body {
 .icon-btn svg{width:16px;height:16px;fill:#e5e7eb}
 </style>
 
+<div class="layout" id="layout">
 <div class="controls" id="controlsPanel">
   <h3>Event generator ⚡</h3>
   <div class="row">
@@ -235,6 +276,15 @@ body {
   <div class="row" style="gap:8px;margin:8px 0">
     <button class="button" id="addCardBtn">Add card</button>
   </div>
+  <div class="row" style="align-items:center; gap:8px">
+    <label>Days</label>
+    <select id="daySelect" class="field" style="min-width:140px"></select>
+    <button class="button" id="addDayBtn" title="Add day">+ Day</button>
+    <button class="button remove-btn" id="removeDayBtn" title="Remove selected day">
+      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 6h18v2H3V6zm2 3h14l-1.5 12.5a2 2 0 0 1-2 1.5H8.5a2 2 0 0 1-2-1.5L5 9zm3-6h8v2H8V3z"/></svg>
+      Remove day
+    </button>
+  </div>
   <div id="cardControls" style="margin-bottom:8px"></div>
   <div class="row" style="align-items:center">
     <label>Canvas</label>
@@ -261,12 +311,9 @@ body {
 
 <div class="canvas-container">
   <div class="stage-scaler" id="stageScaler">
-    <div class="app" id="appRoot">
-
-      <!-- Rendered content will be injected by generate() -->
-
-    </div>
+    <div class="apps-row" id="appsRow"></div>
   </div>
+ </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script>
@@ -356,7 +403,10 @@ const PRESETS = {
 };
 
 const state = {
-  header: getTodayHeader(),
+  // Multi-day support
+  days: [],
+  currentDay: 0,
+  // Global styling preset
   preset: 'PC26',
   custom: {
     bg: '#0b0b0b', 
@@ -369,7 +419,6 @@ const state = {
     },
     radius: 22,
   },
-  cards: [],
   canvas: { width: 550, height: 1300 },
   unitCardHeight: 0,
 };
@@ -435,7 +484,11 @@ const COOKIE_COUNT = 'evs_count';
 function cloneStateForCookie(){
   // Cookies have very limited space; strip large image data
   const s = JSON.parse(JSON.stringify(state));
-  if (s.cards && s.cards.length){
+  if (Array.isArray(s.days)){
+    s.days.forEach(day=>{
+      (day.cards||[]).forEach(c=>{ if (c.padImage) c.padImage = ''; });
+    });
+  } else if (s.cards && s.cards.length){
     s.cards.forEach(c=>{ if (c.padImage) c.padImage = ''; });
   }
   return s;
@@ -512,7 +565,7 @@ function restoreState(){
 
 // Measure the height of an empty food card to use as pad unit height
 function measureUnitCardHeight(){
-  const app = document.getElementById('appRoot');
+  const app = document.querySelector('.apps-row .app') || document.body;
   const probe = document.createElement('div');
   probe.className = 'card is-food';
   probe.style.position = 'absolute';
@@ -529,12 +582,12 @@ function measureUnitCardHeight(){
 function buildShare(){
   // Construct a portable snapshot of the page
   return {
-    v: 1,
-    header: state.header,
+    v: 2,
+    days: state.days,
+    currentDay: state.currentDay,
     preset: state.preset,
     custom: state.custom,
     canvas: state.canvas,
-    cards: state.cards,
   };
 }
 
@@ -551,32 +604,35 @@ function exportShareString(){
 function applyShare(obj){
   if (!obj || typeof obj !== 'object') throw new Error('Invalid data');
   const next = JSON.parse(JSON.stringify(obj));
-  // minimal shape checks and defaults
-  if (!next.header || !next.header.weekday || !next.header.date){ next.header = getTodayHeader(); }
+  // minimal shape checks and defaults (v2 supports days; v1 fallback)
+  if (Array.isArray(next.days)){
+    state.days = next.days;
+    state.currentDay = Math.max(0, Math.min(next.currentDay||0, state.days.length-1));
+  } else {
+    const header = next.header && next.header.weekday && next.header.date ? next.header : getTodayHeader();
+    const cards = Array.isArray(next.cards) ? next.cards : [];
+    state.days = [{ header, cards }];
+    state.currentDay = 0;
+  }
   if (!next.preset) next.preset = 'ocean';
-  if (!next.custom){ next.custom = state.custom; }
-  if (!next.canvas){ next.canvas = state.canvas; }
-  if (!Array.isArray(next.cards)) next.cards = [];
-
-  // apply
-  state.header = next.header;
   state.preset = next.preset;
-  state.custom = next.custom;
-  state.canvas = next.canvas;
-  state.cards = next.cards;
+  state.custom = next.custom || state.custom;
+  state.canvas = next.canvas || state.canvas;
 
   // sync UI controls
   setCanvasVars(state.canvas.width, state.canvas.height);
-  const w = document.getElementById('weekdayInput'); if (w) w.value = state.header.weekday;
-  const d = document.getElementById('dateInput'); if (d) d.value = state.header.date;
+  const active = getActiveDay();
+  const w = document.getElementById('weekdayInput'); if (w) w.value = active.header.weekday;
+  const d = document.getElementById('dateInput'); if (d) d.value = active.header.date;
   const cw = document.getElementById('canvasW'); if (cw) cw.value = state.canvas.width;
   const ch = document.getElementById('canvasH'); if (ch) ch.value = state.canvas.height;
   const pp = document.getElementById('palettePreset'); if (pp) pp.value = state.preset;
+  renderDaySelector();
 
   applyPreset(state.preset);
   updatePalettePreview();
   renderCardControls();
-  generate();
+  renderAll();
 }
 
 function importShareString(){
@@ -592,10 +648,13 @@ function importShareString(){
 }
 
 // ---------- Controls rendering ----------
+function getActiveDay(){ return state.days[state.currentDay] || { header:getTodayHeader(), cards:[] }; }
+
 function renderCardControls(){
   const container = document.getElementById('cardControls');
   container.innerHTML = '';
-  state.cards.forEach((card, i)=>{
+  const day = getActiveDay();
+  day.cards.forEach((card, i)=>{
     const row = document.createElement('div');
     row.className = 'card-row';
     const isPad = card.subject === 'pad';
@@ -647,22 +706,22 @@ function renderCardControls(){
 
   // Attach listeners for card fields
   container.querySelectorAll('.card-title').forEach(inp=>{
-    inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i; state.cards[i].title = e.target.value; generate(); });
+    inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i; getActiveDay().cards[i].title = e.target.value; renderAll(); });
   });
   container.querySelectorAll('.card-subject').forEach(sel=>{
-    sel.addEventListener('change', (e)=>{ const i=+e.target.dataset.i; state.cards[i].subject = e.target.value; renderCardControls(); generate(); });
+    sel.addEventListener('change', (e)=>{ const i=+e.target.dataset.i; getActiveDay().cards[i].subject = e.target.value; renderCardControls(); renderAll(); });
   });
   container.querySelectorAll('.time-start').forEach(inp=>{
-    inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i; state.cards[i].timeStart = e.target.value; validateTimePair(i); generate(); });
+    inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i; getActiveDay().cards[i].timeStart = e.target.value; validateTimePair(i); renderAll(); });
   });
   container.querySelectorAll('.time-end').forEach(inp=>{
-    inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i; state.cards[i].timeEnd = e.target.value; validateTimePair(i); generate(); });
+    inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i; getActiveDay().cards[i].timeEnd = e.target.value; validateTimePair(i); renderAll(); });
   });
   container.querySelectorAll('.card-location').forEach(inp=>{
-    inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i; state.cards[i].location = e.target.value; generate(); });
+    inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i; getActiveDay().cards[i].location = e.target.value; renderAll(); });
   });
   container.querySelectorAll('.card-units').forEach(inp=>{
-    inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i; const v = Math.max(1, parseInt(e.target.value||'1',10)); state.cards[i].cardUnits = v; generate(); });
+    inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i; const v = Math.max(1, parseInt(e.target.value||'1',10)); getActiveDay().cards[i].cardUnits = v; renderAll(); });
   });
   // pad file handler
   container.querySelectorAll('.pad-file').forEach(inp=>{
@@ -671,13 +730,13 @@ function renderCardControls(){
       if (!file) return;
       if (!file.type.startsWith('image/')) { alert('Please select an image file.'); return; }
       const reader = new FileReader();
-      reader.onload = () => { state.cards[i].padImage = reader.result; generate(); };
+      reader.onload = () => { getActiveDay().cards[i].padImage = reader.result; renderAll(); };
       reader.readAsDataURL(file);
     });
   });
   // pad units handler
   container.querySelectorAll('.pad-units').forEach(inp=>{
-    inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i; const v = Math.max(1, parseInt(e.target.value||'1',10)); state.cards[i].padUnits = v; generate(); });
+    inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i; const v = Math.max(1, parseInt(e.target.value||'1',10)); getActiveDay().cards[i].padUnits = v; renderAll(); });
   });
   container.querySelectorAll('button.remove-btn[data-i]').forEach(btn=>{
     btn.addEventListener('click', (e)=>{ const i=+e.currentTarget.dataset.i; removeCardAt(i); });
@@ -691,7 +750,7 @@ function renderCardControls(){
   // Render sublists
   container.querySelectorAll('.sub-list').forEach(list=>{
     const i = +list.dataset.i;
-    const subs = state.cards[i].subs || [];
+    const subs = getActiveDay().cards[i].subs || [];
     list.innerHTML = '';
     subs.forEach((s,si)=>{
       const el = document.createElement('div');
@@ -720,19 +779,19 @@ function renderCardControls(){
 
     // listeners
     list.querySelectorAll('.sub-title').forEach(inp=>{
-      inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i, si=+e.target.dataset.si; state.cards[i].subs[si].title = e.target.value; generate(); });
+      inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i, si=+e.target.dataset.si; getActiveDay().cards[i].subs[si].title = e.target.value; renderAll(); });
     });
     list.querySelectorAll('.sub-subject').forEach(sel=>{
-      sel.addEventListener('change', (e)=>{ const i=+e.target.dataset.i, si=+e.target.dataset.si; state.cards[i].subs[si].subject = e.target.value; generate(); });
+      sel.addEventListener('change', (e)=>{ const i=+e.target.dataset.i, si=+e.target.dataset.si; getActiveDay().cards[i].subs[si].subject = e.target.value; renderAll(); });
     });
     list.querySelectorAll('.sub-time-start').forEach(inp=>{
-      inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i, si=+e.target.dataset.si; state.cards[i].subs[si].timeStart = e.target.value; validateSubTimePair(i,si); generate(); });
+      inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i, si=+e.target.dataset.si; getActiveDay().cards[i].subs[si].timeStart = e.target.value; validateSubTimePair(i,si); renderAll(); });
     });
     list.querySelectorAll('.sub-time-end').forEach(inp=>{
-      inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i, si=+e.target.dataset.si; state.cards[i].subs[si].timeEnd = e.target.value; validateSubTimePair(i,si); generate(); });
+      inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i, si=+e.target.dataset.si; getActiveDay().cards[i].subs[si].timeEnd = e.target.value; validateSubTimePair(i,si); renderAll(); });
     });
     list.querySelectorAll('.sub-location').forEach(inp=>{
-      inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i, si=+e.target.dataset.si; state.cards[i].subs[si].location = e.target.value; generate(); });
+      inp.addEventListener('input', (e)=>{ const i=+e.target.dataset.i, si=+e.target.dataset.si; getActiveDay().cards[i].subs[si].location = e.target.value; renderAll(); });
     });
     list.querySelectorAll('button.remove-btn.small').forEach(btn=>{
       btn.addEventListener('click', (e)=>{ const i=+e.currentTarget.dataset.i, si=+e.currentTarget.dataset.si; removeSubcard(i,si); });
@@ -743,14 +802,14 @@ function renderCardControls(){
 // ---------- Validation ----------
 function timeToMinutes(v){ if(!v) return null; const parts=v.split(':'); if(parts.length!==2) return null; return parseInt(parts[0],10)*60+parseInt(parts[1],10); }
 function validateTimePair(i){
-  const s = state.cards[i].timeStart, e = state.cards[i].timeEnd;
+  const s = getActiveDay().cards[i].timeStart, e = getActiveDay().cards[i].timeEnd;
   const ok = !s || !e || timeToMinutes(s) < timeToMinutes(e);
   const sEl = document.querySelector(`.time-start[data-i="${i}"]`);
   const eEl = document.querySelector(`.time-end[data-i="${i}"]`);
   [sEl,eEl].forEach(el=>{ if(!el) return; el.classList.toggle('invalid', !ok && s && e); });
 }
 function validateSubTimePair(i,si){
-  const s = state.cards[i].subs[si].timeStart, e = state.cards[i].subs[si].timeEnd;
+  const s = getActiveDay().cards[i].subs[si].timeStart, e = getActiveDay().cards[i].subs[si].timeEnd;
   const ok = !s || !e || timeToMinutes(s) < timeToMinutes(e);
   const sEl = document.querySelector(`.sub-time-start[data-i="${i}"][data-si="${si}"]`);
   const eEl = document.querySelector(`.sub-time-end[data-i="${i}"][data-si="${si}"]`);
@@ -759,48 +818,51 @@ function validateSubTimePair(i,si){
 
 // ---------- State mutators ----------
 function addCard(){
-  state.cards.push({ subject:'food', title:'', timeStart:'', timeEnd:'', location:'', cardUnits:1, subs:[], padImage:'' });
+  getActiveDay().cards.push({ subject:'food', title:'', timeStart:'', timeEnd:'', location:'', cardUnits:1, subs:[], padImage:'' });
   renderCardControls();
-  generate();
+  renderAll();
 }
 function removeCardAt(index){
-  if (index<0 || index>=state.cards.length) return;
-  state.cards.splice(index,1);
+  const day = getActiveDay();
+  if (index<0 || index>=day.cards.length) return;
+  day.cards.splice(index,1);
   renderCardControls();
-  generate();
+  renderAll();
 }
 function addSubcard(cardIndex){
-  state.cards[cardIndex].subs.push({ subject: state.cards[cardIndex].subject, title:'', timeStart:'', timeEnd:'', location:'' });
+  const day = getActiveDay();
+  day.cards[cardIndex].subs.push({ subject: day.cards[cardIndex].subject, title:'', timeStart:'', timeEnd:'', location:'' });
   renderCardControls();
-  generate();
+  renderAll();
 }
 function removeSubcard(cardIndex, subIndex){
-  state.cards[cardIndex].subs.splice(subIndex,1);
+  getActiveDay().cards[cardIndex].subs.splice(subIndex,1);
   renderCardControls();
-  generate();
+  renderAll();
 }
 function clearAll(){
-  state.cards = [];
+  const day = getActiveDay();
+  day.cards = [];
   // reset header to today's date and sync inputs
   if (typeof getTodayHeader === 'function') {
-    state.header = getTodayHeader();
+    day.header = getTodayHeader();
     const w = document.getElementById('weekdayInput');
     const d = document.getElementById('dateInput');
-    if (w) w.value = state.header.weekday;
-    if (d) d.value = state.header.date;
+    if (w) w.value = day.header.weekday;
+    if (d) d.value = day.header.date;
   }
   renderCardControls();
-  generate();
+  renderAll();
 }
 
 // ---------- Rendering of final layout ----------
-function generate(){
+function generateDay(day, targetEl){
   const colors = currentColors();
   setCssVars(colors);
-  const app = document.getElementById('appRoot');
+  const app = targetEl;
   let html = '';
-  html += `<div class="header"><div class="weekday">${state.header.weekday}</div><div class="date">${state.header.date}</div></div>`;
-  state.cards.forEach(card=>{
+  html += `<div class="header"><div class="weekday">${day.header.weekday}</div><div class="date">${day.header.date}</div></div>`;
+  day.cards.forEach(card=>{
     const subj = card.subject || 'food';
     if (subj === 'pad') {
       const units = Math.max(1, card.padUnits||1);
@@ -845,7 +907,18 @@ function generate(){
     }
   });
   app.innerHTML = html;
-  // persist after every render to capture changes
+}
+
+function renderAll(){
+  const row = document.getElementById('appsRow');
+  row.innerHTML = '';
+  state.days.forEach((day, idx)=>{
+    const col = document.createElement('div');
+    col.className = 'app';
+    col.id = 'appRoot-' + idx;
+    row.appendChild(col);
+    generateDay(day, col);
+  });
   persistState();
 }
 
@@ -867,7 +940,7 @@ function applyPreset(name){
     customBlock.style.display = 'none';
   }
   updatePalettePreview();
-  generate(); // immediate update
+  renderAll(); // immediate update
 }
 
 // preview updates for custom inputs
@@ -889,8 +962,8 @@ function applyPreset(name){
 });
 
 function wireHeaderInputs(){
-  document.getElementById('weekdayInput').addEventListener('input', (e)=>{ state.header.weekday = e.target.value; generate(); });
-  document.getElementById('dateInput').addEventListener('input', (e)=>{ state.header.date = e.target.value; generate(); });
+  document.getElementById('weekdayInput').addEventListener('input', (e)=>{ const day=getActiveDay(); day.header.weekday = e.target.value; renderAll(); });
+  document.getElementById('dateInput').addEventListener('input', (e)=>{ const day=getActiveDay(); day.header.date = e.target.value; renderAll(); });
 }
 
 function wirePreset(){
@@ -898,28 +971,89 @@ function wirePreset(){
   select.addEventListener('change', (e)=> applyPreset(e.target.value));
 }
 
+function renderDaySelector(){
+  const sel = document.getElementById('daySelect');
+  if (!sel) return;
+  sel.innerHTML = '';
+  state.days.forEach((d, i)=>{
+    const opt = document.createElement('option');
+    const label = (d.header && (d.header.weekday||d.header.date)) ? `${d.header.weekday||''} ${d.header.date||''}`.trim() : `Day ${i+1}`;
+    opt.value = String(i);
+    opt.textContent = label || `Day ${i+1}`;
+    sel.appendChild(opt);
+  });
+  sel.value = String(state.currentDay);
+}
+
+function addDay(copyCurrent=true){
+  const base = copyCurrent ? JSON.parse(JSON.stringify(getActiveDay())) : { header:getTodayHeader(), cards:[] };
+  state.days.splice(state.currentDay+1, 0, base);
+  state.currentDay = state.currentDay + 1;
+  renderDaySelector();
+  renderCardControls();
+  const w = document.getElementById('weekdayInput'); if (w) w.value = base.header.weekday;
+  const d = document.getElementById('dateInput'); if (d) d.value = base.header.date;
+  renderAll();
+}
+
+function removeDay(){
+  if (state.days.length <= 1) { alert('At least one day is required.'); return; }
+  state.days.splice(state.currentDay,1);
+  state.currentDay = Math.max(0, state.currentDay-1);
+  renderDaySelector();
+  renderCardControls();
+  const active = getActiveDay();
+  const w = document.getElementById('weekdayInput'); if (w) w.value = active.header.weekday;
+  const d = document.getElementById('dateInput'); if (d) d.value = active.header.date;
+  renderAll();
+}
+
+function wireDayControls(){
+  const sel = document.getElementById('daySelect');
+  if (sel){
+    sel.addEventListener('change', (e)=>{
+      const idx = Math.max(0, Math.min(parseInt(e.target.value||'0',10), state.days.length-1));
+      state.currentDay = idx;
+      const active = getActiveDay();
+      const w = document.getElementById('weekdayInput'); if (w) w.value = active.header.weekday;
+      const d = document.getElementById('dateInput'); if (d) d.value = active.header.date;
+      renderCardControls();
+      renderAll();
+    });
+  }
+  const addBtn = document.getElementById('addDayBtn');
+  if (addBtn){ addBtn.addEventListener('click', ()=> addDay(true)); }
+  const remBtn = document.getElementById('removeDayBtn');
+  if (remBtn){ remBtn.addEventListener('click', removeDay); }
+}
+
 function wireActions(){
   document.getElementById('addCardBtn').addEventListener('click', addCard);
-  document.getElementById('generateBtn').addEventListener('click', generate);
+  document.getElementById('generateBtn').addEventListener('click', renderAll);
   document.getElementById('exportBtn').addEventListener('click', exportPNG);
   document.getElementById('deleteAllBtn').addEventListener('click', ()=>{ if (confirm('Delete all cards?')) clearAll(); });
-  document.getElementById('canvasW').addEventListener('input', (e)=>{ const w= Math.max(200, parseInt(e.target.value||'550',10)); state.canvas.width = w; setCanvasVars(state.canvas.width, state.canvas.height); });
-  document.getElementById('canvasH').addEventListener('input', (e)=>{ const h= Math.max(300, parseInt(e.target.value||'1860',10)); state.canvas.height = h; setCanvasVars(state.canvas.width, state.canvas.height); });
+  document.getElementById('canvasW').addEventListener('input', (e)=>{ const w= Math.max(200, parseInt(e.target.value||'550',10)); state.canvas.width = w; setCanvasVars(state.canvas.width, state.canvas.height); renderAll(); measureUnitCardHeight(); });
+  document.getElementById('canvasH').addEventListener('input', (e)=>{ const h= Math.max(300, parseInt(e.target.value||'1860',10)); state.canvas.height = h; setCanvasVars(state.canvas.width, state.canvas.height); renderAll(); measureUnitCardHeight(); });
   document.getElementById('exportJsonBtn').addEventListener('click', exportShareString);
   document.getElementById('importJsonBtn').addEventListener('click', importShareString);
 }
 
 function exportPNG(){
-  const element = document.getElementById('appRoot');
+  const elements = Array.from(document.querySelectorAll('.apps-row .app'));
   const colors = currentColors();
   const TARGET_W = state.canvas.width;
-  const TARGET_H = state.canvas.height;
-  html2canvas(element, { backgroundColor: colors.bg, scale: 2, windowWidth: TARGET_W }).then(canvas=>{
-    const a = document.createElement('a');
-    a.href = canvas.toDataURL('image/png');
-    a.download = 'event.png';
-    a.click();
-  }).catch(err=> alert('Export failed: '+err));
+  const tasks = elements.map((el, idx)=>
+    html2canvas(el, { backgroundColor: colors.bg, scale: 2, windowWidth: TARGET_W })
+      .then(canvas=>{
+        const a = document.createElement('a');
+        a.href = canvas.toDataURL('image/png');
+        const day = state.days[idx];
+        const label = (day && day.header && (day.header.weekday||day.header.date)) ? `-${(day.header.weekday||'day').toString().toLowerCase()}` : `-day${idx+1}`;
+        a.download = `event${label}.png`;
+        a.click();
+      })
+  );
+  Promise.allSettled(tasks).catch(()=>{});
 }
 
 // ---------- Init ----------
@@ -927,25 +1061,38 @@ function init(){
   // start with one example card for convenience
   const hadSaved = restoreState();
   if (!hadSaved){
-    state.cards = [
-      { subject:'food', title:'Frokost', timeStart:'07:30', timeEnd:'09:00', location:'Suitene', cardUnits:1, subs:[], padImage:'' },
-      { subject:'activity', title:'Aktiviteter', timeStart:'09:00', timeEnd:'16:00', location:'', cardUnits:1, subs:[ {subject:'food', title:'Lunsj', timeStart:'12:00', timeEnd:'13:00', location:'Festplassen'} ], padImage:'' },
-    ];
+    state.days = [{
+      header: getTodayHeader(),
+      cards: [
+        { subject:'food', title:'Frokost', timeStart:'07:30', timeEnd:'09:00', location:'Suitene', cardUnits:1, subs:[], padImage:'' },
+        { subject:'activity', title:'Aktiviteter', timeStart:'09:00', timeEnd:'16:00', location:'', cardUnits:1, subs:[ {subject:'food', title:'Lunsj', timeStart:'12:00', timeEnd:'13:00', location:'Festplassen'} ], padImage:'' },
+      ]
+    }];
+    state.currentDay = 0;
+  } else if (!Array.isArray(state.days) || !state.days.length){
+    // migrate from legacy single-day shape if needed
+    const legacyHeader = state.header || getTodayHeader();
+    const legacyCards = state.cards || [];
+    state.days = [{ header: legacyHeader, cards: legacyCards }];
+    state.currentDay = 0;
   }
   setCanvasVars(state.canvas.width, state.canvas.height);
   renderCardControls();
   wireHeaderInputs();
   wirePreset();
   wireActions();
+  wireDayControls();
   // reflect restored header/canvas/preset in controls
-  document.getElementById('weekdayInput').value = state.header.weekday;
-  document.getElementById('dateInput').value = state.header.date;
+  const active = getActiveDay();
+  document.getElementById('weekdayInput').value = active.header.weekday;
+  document.getElementById('dateInput').value = active.header.date;
   document.getElementById('canvasW').value = state.canvas.width;
   document.getElementById('canvasH').value = state.canvas.height;
   document.getElementById('palettePreset').value = state.preset;
   applyPreset(state.preset);
   updatePalettePreview();
-  generate();
+  renderDaySelector();
+  renderAll();
   measureUnitCardHeight();
 }
 
